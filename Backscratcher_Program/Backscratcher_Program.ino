@@ -23,11 +23,26 @@ const float GEAR_RED = 64;
 const float STEPS_PER_OUT_REV = STEPS_PER_REV * GEAR_RED;
 const int headSpeed = 1000;
 int stepsRequired;
-bool scratch = false;
 Stepper head(STEPS_PER_REV, 8, 10, 9, 11);
 
-//Creating the hasScratched for use in logic paths later in the code
+//Creating the boolean values for indication of toggled modes and actions done, used in logic paths later in the code
+bool twist = false;
+bool scratchVertical = false;
+bool scratchHorizontal = false;
 bool hasScratched;
+
+//Creating values to store the change in angle when scratching
+float verticalOffset = 0;
+float horizontalOffset = 0;
+
+//Creating values to store the direction of the scratch as it happens
+bool verticalIncrease = true;
+bool horizontalIncrease = true;
+
+//Creating variables to determine the factors of the scratch
+float scratchPeriod = 10;
+float verticalAmplitude = 15;
+float horizontalAmplitude = 20;
 
 
 
@@ -56,7 +71,7 @@ void setup() {
 
 //The loop function to be repeated throughout the coded
 void loop() {
-    hasScratched = false;
+  hasScratched = false;
   
   //Checking if there is incoming bluetooth data
   if (Bluetooth.available() > 0) {
@@ -64,15 +79,37 @@ void loop() {
     dataIn = Bluetooth.readString();
 
     //Checking if the data is for the head's scratching to be turned on and making subsequent adjustments
-    if (dataIn == "HG"){
-      scratch = true;
+    if (dataIn == "TG"){
+      twist = true;
     }
     //Checking if the data is for the head's scratching to be turned off and making subsequent adjustments
-    else if (dataIn == "HS"){
-      scratch = false;
+    else if (dataIn == "TS"){
+      twist = false;
+    }
+    //Checking if the data is for the vertical scratching to be turned on and making subsequent adjustments
+    else if (dataIn == "VSG"){
+      scratchVertical = true;
+      verticalOffset = 0;
+    }
+    //Checking if the data is for the vertical scratching to be turned off and making subsequent adjustments
+    else if (dataIn == "VSS"){
+      scratchVertical = false;
+      shoulder.write(shoulderAngle);
+      elbow.write(elbowAngle);
+      wrist.write(wristAngle);
+    }
+    //Checking if the data is for the horizontal scratching to be turned on and making subsequent adjustments
+    else if (dataIn == "HSG"){
+      scratchHorizontal = true;
+      horizontalOffset = 0;
+    }
+    //Checking if the data is for the horizontal scratching to be turned off and making subsequent adjustments
+    else if (dataIn == "HSS"){
+      scratchHorizontal = false;
+      base.write(baseAngle);
     }
   }
-
+  
   //Checking if the most recent data is for the "Up Go" instruction
   if (dataIn == "UG") {
     //Checking if the elbow is still within the custom limit
@@ -141,15 +178,68 @@ void loop() {
     dataIn = "";
   }
 
-  //Checking if the scratch value is true, in the case that no motors are moving
-  else if (scratch){
+  //Checking if the twist value is true
+  if (twist){
+    //Moving the head spikes by a small turn, roughly equal to a 50 millisecond delay
     head.setSpeed(headSpeed);
-    stepsRequired = STEPS_PER_OUT_REV / 20;
+    stepsRequired = STEPS_PER_OUT_REV / 75;
     head.step(stepsRequired);
     hasScratched = true;
   }
 
-  //Delaying the next loop as to space apart the actions
+  //Checking if the vertical scratch value is true
+  if (scratchVertical){
+    //Checking if the up section of the scratch motion is in effect
+    if (verticalIncrease) {
+      //Adjusting variables and moving motors to the new location
+      verticalOffset -= (verticalAmplitude / scratchPeriod);
+      shoulder.write(shoulderAngle + verticalOffset);
+      elbow.write(elbowAngle + verticalOffset * 2);
+      wrist.write(wristAngle + verticalOffset);
+      //Ending the up movement of the scratch motion if the upper limit has been reached
+      if (verticalOffset <= -verticalAmplitude){
+        verticalIncrease = false;
+      }
+    }
+    //Actions when in the downwards phase of scratching
+    else {
+      //Adjusting variables and moving motors to the new location
+      verticalOffset += (verticalAmplitude / scratchPeriod);
+      shoulder.write(shoulderAngle + verticalOffset);
+      elbow.write(elbowAngle + verticalOffset * 2);
+      wrist.write(wristAngle + verticalOffset);
+      //Ending the down movement of the scratch motion if the lower limit has been reached
+      if (verticalOffset >= verticalAmplitude){
+        verticalIncrease = true;
+      }
+    }
+  }
+
+  //Checking if the horizontal scratch value is true
+  if (scratchHorizontal){
+    //Checking if the scratch motion is currently in its right moving phase
+    if (horizontalIncrease){
+      //Adjusting variables and moving motors
+      horizontalOffset += (horizontalAmplitude / scratchPeriod);
+      base.write(baseAngle + horizontalOffset);
+      //Ending the right movement of the scratch motion if the upper limit has been reached
+      if (horizontalOffset >= horizontalAmplitude){
+        horizontalIncrease = false;
+      }
+    }
+    //Actions when in the left phase of scratching
+    else {
+      //Adjusting variables and moving motors
+      horizontalOffset -= (horizontalAmplitude / scratchPeriod);
+      base.write(baseAngle + horizontalOffset);
+      //Ending the left movement of the scratch motion if the lower limit has been reached
+      if (horizontalOffset <= -horizontalAmplitude){
+        horizontalIncrease = true;
+      }
+    }
+  }
+  
+  //Delaying the next loop as to space apart the actions, assuming the twist delay is not already used
   if (not hasScratched) {
     delay(50);
   }
